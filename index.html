@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>NanoBanana — Image Remix (Demo)</title>
+  <style>
+    :root{--accent:#6a3ad6;--muted:#f3f4f6}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;margin:0;background:linear-gradient(180deg,#fff,#fbfbff);color:#111}
+    .wrap{max-width:980px;margin:18px auto;padding:16px}
+    header{display:flex;gap:12px;align-items:center}
+    h1{font-size:18px;margin:0}
+    .card{background:#fff;border-radius:12px;padding:12px;box-shadow:0 6px 18px rgba(20,20,60,.06);margin-top:12px}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    label{font-size:13px}
+    input[type=file]{display:block}
+    textarea{width:100%;min-height:84px;border-radius:8px;border:1px solid #e6e7ee;padding:8px}
+    button{background:var(--accent);color:white;border:0;padding:10px 14px;border-radius:8px;font-weight:600}
+    .gallery{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+    .thumb{width:150px;height:150px;object-fit:cover;border-radius:8px}
+    .meta{font-size:12px;color:#666;margin-top:6px}
+    .small{font-size:12px;color:#666}
+    .controls{display:flex;gap:8px;align-items:center}
+    .loader{display:inline-block;width:18px;height:18px;border-radius:50%;border:3px solid rgba(255,255,255,0.3);border-top-color:rgba(255,255,255,0.9);animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    footer{font-size:12px;color:#666;margin-top:18px}
+    @media (max-width:520px){.thumb{width:120px;height:120px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>NanoBanana — Image Remix (Pro demo, Vanilla JS)</h1>
+    </header>
+
+    <div class="card">
+      <div class="row">
+        <div style="flex:1;min-width:240px">
+          <label class="small">Upload reference image (the subject to edit):</label>
+          <input id="file" type="file" accept="image/*" />
+          <div class="meta">Max recommended size: 5–10 MB. Smaller is faster.</div>
+        </div>
+
+        <div style="flex:2;min-width:240px">
+          <label class="small">Prompt (describe edits or style):</label>
+          <textarea id="prompt" placeholder="Example: make background soft bokeh, change outfit to red leather jacket, cinematic lighting"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+            <label class="small">Variations:</label>
+            <select id="num" style="padding:6px;border-radius:6px">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3" selected>3</option>
+            </select>
+            <label class="small">Size:</label>
+            <select id="size" style="padding:6px;border-radius:6px">
+              <option value="512">512</option>
+              <option value="768">768</option>
+              <option value="1024" selected>1024</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+        <div class="controls">
+          <button id="go">Generate</button>
+          <div id="status" style="margin-left:8px"></div>
+        </div>
+        <div style="margin-left:auto" class="small">Powered by Gemini (keep API key on server)</div>
+      </div>
+    </div>
+
+    <div class="card" id="previewBox" style="display:none">
+      <div class="meta">Preview (tap to download)</div>
+      <div class="gallery" id="gallery"></div>
+    </div>
+
+    <footer>Instructions: upload one image, type a prompt describing changes, then tap Generate. Use TrebEdit to edit any text or styles.</footer>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('file');
+    const promptEl = document.getElementById('prompt');
+    const goBtn = document.getElementById('go');
+    const gallery = document.getElementById('gallery');
+    const previewBox = document.getElementById('previewBox');
+    const status = document.getElementById('status');
+
+    function readFileAsDataURL(file){
+      return new Promise((res, rej)=>{
+        const r = new FileReader();
+        r.onload = ()=>res(r.result);
+        r.onerror = rej;
+        r.readAsDataURL(file);
+      });
+    }
+
+    async function postGenerate({imageDataUrl, prompt, num, size}){
+      const payload = { image_b64: imageDataUrl, prompt, num_images: Number(num), size };
+      const resp = await fetch('/api/generate', {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+      });
+      if(!resp.ok) throw new Error(await resp.text());
+      return resp.json();
+    }
+
+    async function showStatus(text, busy=false){
+      status.innerHTML = '';
+      if(busy){
+        const l = document.createElement('span'); l.className='loader'; status.appendChild(l);
+      }
+      const t = document.createElement('span'); t.style.marginLeft='8px'; t.textContent = text; status.appendChild(t);
+    }
+
+    goBtn.addEventListener('click', async ()=>{
+      const f = fileInput.files[0];
+      const prompt = promptEl.value.trim();
+      const num = document.getElementById('num').value;
+      const size = document.getElementById('size').value;
+      if(!f || !prompt){ alert('Please provide an image and a prompt.'); return; }
+
+      try{
+        await showStatus('Uploading & generating...', true);
+        const dataUrl = await readFileAsDataURL(f);
+        const res = await postGenerate({imageDataUrl:dataUrl, prompt, num, size});
+        gallery.innerHTML = '';
+        (res.images || []).forEach((b64, idx)=>{
+          const img = document.createElement('img');
+          img.src = 'data:image/png;base64,'+b64;
+          img.className = 'thumb';
+          img.title = 'Tap to download';
+          img.onclick = ()=>{
+            const a = document.createElement('a');
+            a.href = img.src; a.download = `nanobanana_${Date.now()}_${idx}.png`; a.click();
+          };
+          gallery.appendChild(img);
+        });
+        previewBox.style.display = res.images && res.images.length ? 'block':'none';
+        await showStatus('Done — images ready', false);
+      }catch(err){
+        console.error(err);
+        alert('Generation failed: '+(err.message||err));
+        await showStatus('Failed', false);
+      }
+    });
+  </script>
+</body>
+</html>
